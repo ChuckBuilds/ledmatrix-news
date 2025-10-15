@@ -191,7 +191,10 @@ class NewsTickerPlugin(BasePlugin):
     def _fetch_feed_headlines(self, feed_name: str, feed_url: str) -> List[Dict]:
         """Fetch headlines from a specific RSS feed."""
         cache_key = f"news_{feed_name}_{datetime.now().strftime('%Y%m%d%H')}"
-        update_interval = self.global_config.get('update_interval_seconds', 300)
+        try:
+            update_interval = int(self.global_config.get('update_interval_seconds', 300))
+        except (ValueError, TypeError):
+            update_interval = 300
 
         # Check cache first
         cached_data = self.cache_manager.get(cache_key)
