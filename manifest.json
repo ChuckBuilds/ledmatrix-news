@@ -1,6 +1,7 @@
 {
   "id": "news",
   "name": "News Ticker",
+  "version": "1.0.2",
   "author": "ChuckBuilds",
   "description": "Displays scrolling news headlines from RSS feeds including sports news from ESPN, NCAA updates, and custom RSS sources",
   "category": "content",
