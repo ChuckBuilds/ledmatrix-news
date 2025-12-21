@@ -1,3 +1,16 @@
+-----------------------------------------------------------------------------------
+### Connect with ChuckBuilds
+
+- Show support on Youtube: https://www.youtube.com/@ChuckBuilds
+- Stay in touch on Instagram: https://www.instagram.com/ChuckBuilds/
+- Want to chat or need support? Reach out on the ChuckBuilds Discord: https://discord.com/invite/uW36dVAtcT
+- Feeling Generous? Support the project:
+  - Github Sponsorship: https://github.com/sponsors/ChuckBuilds
+  - Buy Me a Coffee: https://buymeacoffee.com/chuckbuilds
+  - Ko-fi: https://ko-fi.com/chuckbuilds/ 
+
+-----------------------------------------------------------------------------------
+
 # News Ticker Plugin
 
 A plugin for LEDMatrix that displays scrolling news headlines from RSS feeds including sports news from ESPN, NCAA updates, and custom RSS sources.
