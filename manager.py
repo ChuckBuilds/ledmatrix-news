@@ -270,6 +270,36 @@ class NewsTickerPlugin(BasePlugin):
             }
         return fonts
 
+    def validate_config(self) -> bool:
+        """Validate plugin configuration."""
+        # Call parent validation first
+        if not super().validate_config():
+            return False
+        
+        # Validate feeds configuration
+        if not isinstance(self.feeds_config, dict):
+            self.logger.error("feeds configuration must be a dictionary")
+            return False
+        
+        # Validate enabled_feeds is a list if present
+        enabled_feeds = self.feeds_config.get('enabled_feeds', [])
+        if not isinstance(enabled_feeds, list):
+            self.logger.error("enabled_feeds must be a list")
+            return False
+        
+        # Validate custom_feeds is a dict if present
+        custom_feeds = self.feeds_config.get('custom_feeds', {})
+        if not isinstance(custom_feeds, dict):
+            self.logger.error("custom_feeds must be a dictionary")
+            return False
+        
+        # Validate global configuration
+        if not isinstance(self.global_config, dict):
+            self.logger.error("global configuration must be a dictionary")
+            return False
+        
+        return True
+
     def update(self) -> None:
         """Update news headlines from all enabled feeds."""
         if not self.initialized:
