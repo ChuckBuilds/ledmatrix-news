@@ -357,7 +357,7 @@ class NewsTickerPlugin(BasePlugin):
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
             }
-            response = requests.get(feed_url, headers=headers timeout=self.background_config.get('request_timeout', 30))
+            response = requests.get(feed_url, headers=headers, timeout=self.background_config.get('request_timeout', 30))
             response.raise_for_status()
 
             # Parse RSS XML
