@@ -778,9 +778,11 @@ class NewsTickerPlugin(BasePlugin):
                 feed_height = feed_bbox[3] - feed_bbox[1]
 
             separator_width = 0
+            separator_height = 0
             if separator_text:
                 separator_bbox = draw_temp.textbbox((0, 0), separator_text, font=self.fonts['separator'])
                 separator_width = separator_bbox[2] - separator_bbox[0]
+                separator_height = separator_bbox[3] - separator_bbox[1]
 
             # Calculate total width
             total_width = logo_width + logo_spacing + feed_width + title_width + separator_width + 32  # Add padding
@@ -802,17 +804,20 @@ class NewsTickerPlugin(BasePlugin):
 
             # Draw feed name (only if no logo)
             if feed_text:
-                draw.text((current_x, 0), feed_text, font=self.fonts['info'], fill=(150, 150, 150))
+                feed_text_y = (total_height - feed_height) // 2
+                draw.text((current_x, feed_text_y), feed_text, font=self.fonts['info'], fill=(150, 150, 150))
                 current_x += feed_width
 
             # Draw title
-            draw.text((current_x, 0), title, font=self.fonts['headline'], fill=self.text_color)
+            title_y = (total_height - title_height) // 2
+            draw.text((current_x, title_y), title, font=self.fonts['headline'], fill=self.text_color)
             current_x += title_width
 
             # Draw separator (only if no logo) - use bullet point separator
             if separator_text:
                 separator_x = current_x + 8
-                draw.text((separator_x, 0), separator_text, font=self.fonts['separator'], fill=self.separator_color)
+                separator_y = (total_height - separator_height) // 2
+                draw.text((separator_x, separator_y), separator_text, font=self.fonts['separator'], fill=self.separator_color)
 
             return headline_img
 
