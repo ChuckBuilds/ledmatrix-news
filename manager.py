@@ -25,6 +25,7 @@ import re
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List
 from pathlib import Path
+from urllib.parse import urlparse
 from PIL import Image, ImageDraw, ImageFont
 
 from src.plugin_system.base_plugin import BasePlugin
@@ -174,41 +175,7 @@ class NewsTickerPlugin(BasePlugin):
         self.enable_scrolling = True
 
         # Configure ScrollHelper with plugin settings
-        use_frame_based = (self.scroll_pixels_per_second is None and 
-                          display_config and 
-                          ('scroll_speed' in display_config or 'scroll_delay' in display_config))
-
-        if use_frame_based:
-            # Frame-based scrolling
-            if hasattr(self.scroll_helper, 'set_frame_based_scrolling'):
-                self.scroll_helper.set_frame_based_scrolling(True)
-            self.scroll_helper.set_scroll_speed(self.scroll_speed)
-            self.scroll_helper.set_scroll_delay(self.scroll_delay)
-            pixels_per_second = self.scroll_speed / self.scroll_delay if self.scroll_delay > 0 else self.scroll_speed * 100
-            self.logger.info(f"Effective scroll speed: {pixels_per_second:.1f} px/s ({self.scroll_speed} px/frame at {1.0/self.scroll_delay:.0f} FPS)")
-        else:
-            # Time-based scrolling (backward compatibility)
-            if self.scroll_pixels_per_second is not None:
-                pixels_per_second = self.scroll_pixels_per_second
-            else:
-                pixels_per_second = self.scroll_speed / self.scroll_delay if self.scroll_delay > 0 else self.scroll_speed * 100
-            self.scroll_helper.set_scroll_speed(pixels_per_second)
-            self.scroll_helper.set_scroll_delay(self.scroll_delay)
-
-        # Set target FPS
-        if hasattr(self.scroll_helper, 'set_target_fps'):
-            self.scroll_helper.set_target_fps(self.target_fps)
-        else:
-            self.scroll_helper.target_fps = max(30.0, min(200.0, self.target_fps))
-            self.scroll_helper.frame_time_target = 1.0 / self.scroll_helper.target_fps
-
-        # Configure dynamic duration
-        self.scroll_helper.set_dynamic_duration_settings(
-            enabled=self.dynamic_duration_enabled,
-            min_duration=self.min_duration,
-            max_duration=self.max_duration,
-            buffer=self.duration_buffer
-        )
+        self._configure_scroll_settings()
 
         # Log enabled feeds
         enabled_feeds = self.feeds_config.get('enabled_feeds', [])
@@ -270,6 +237,56 @@ class NewsTickerPlugin(BasePlugin):
             }
         return fonts
 
+    def _configure_scroll_settings(self) -> None:
+        """
+        Configure scroll helper with current settings.
+        
+        Assumes scroll configuration variables (scroll_speed, scroll_delay, etc.)
+        and scroll_helper are already set up. This method applies those settings
+        to the scroll_helper instance.
+        """
+        if not hasattr(self, 'scroll_helper') or not self.scroll_helper:
+            return
+        
+        # Determine if we should use frame-based scrolling
+        # Check if scroll_pixels_per_second is None (frame-based) or set (time-based)
+        display_config = self.global_config.get('display', {})
+        use_frame_based = (self.scroll_pixels_per_second is None and 
+                          display_config and 
+                          ('scroll_speed' in display_config or 'scroll_delay' in display_config))
+        
+        if use_frame_based:
+            # Frame-based scrolling
+            if hasattr(self.scroll_helper, 'set_frame_based_scrolling'):
+                self.scroll_helper.set_frame_based_scrolling(True)
+            self.scroll_helper.set_scroll_speed(self.scroll_speed)
+            self.scroll_helper.set_scroll_delay(self.scroll_delay)
+            pixels_per_second = self.scroll_speed / self.scroll_delay if self.scroll_delay > 0 else self.scroll_speed * 100
+            self.logger.info(f"Effective scroll speed: {pixels_per_second:.1f} px/s ({self.scroll_speed} px/frame at {1.0/self.scroll_delay:.0f} FPS)")
+        else:
+            # Time-based scrolling (backward compatibility)
+            if self.scroll_pixels_per_second is not None:
+                pixels_per_second = self.scroll_pixels_per_second
+            else:
+                pixels_per_second = self.scroll_speed / self.scroll_delay if self.scroll_delay > 0 else self.scroll_speed * 100
+            self.scroll_helper.set_scroll_speed(pixels_per_second)
+            self.scroll_helper.set_scroll_delay(self.scroll_delay)
+        
+        # Set target FPS
+        if hasattr(self.scroll_helper, 'set_target_fps'):
+            self.scroll_helper.set_target_fps(self.target_fps)
+        else:
+            self.scroll_helper.target_fps = max(30.0, min(200.0, self.target_fps))
+            self.scroll_helper.frame_time_target = 1.0 / self.scroll_helper.target_fps
+        
+        # Configure dynamic duration
+        self.scroll_helper.set_dynamic_duration_settings(
+            enabled=self.dynamic_duration_enabled,
+            min_duration=self.min_duration,
+            max_duration=self.max_duration,
+            buffer=self.duration_buffer
+        )
+
     def validate_config(self) -> bool:
         """Validate plugin configuration."""
         # Call parent validation first
@@ -293,12 +310,124 @@ class NewsTickerPlugin(BasePlugin):
             self.logger.error("custom_feeds must be a dictionary")
             return False
         
+        # Validate custom feed URLs
+        for feed_name, feed_url in custom_feeds.items():
+            if not isinstance(feed_url, str) or not feed_url.strip():
+                self.logger.error(f"Custom feed '{feed_name}' has invalid URL: must be a non-empty string")
+                return False
+            try:
+                parsed = urlparse(feed_url)
+                if not parsed.scheme or not parsed.netloc:
+                    self.logger.error(f"Custom feed '{feed_name}' has invalid URL format: {feed_url}")
+                    return False
+            except Exception as e:
+                self.logger.error(f"Custom feed '{feed_name}' URL validation error: {e}")
+                return False
+        
         # Validate global configuration
         if not isinstance(self.global_config, dict):
             self.logger.error("global configuration must be a dictionary")
             return False
         
         return True
+
+    def on_config_change(self, new_config: Dict[str, Any]) -> None:
+        """
+        Handle configuration changes at runtime.
+        
+        Updates feeds configuration and clears cache to force refresh when
+        custom feeds or enabled feeds change.
+        """
+        super().on_config_change(new_config)
+        
+        # Update feeds configuration
+        old_feeds_config = self.feeds_config.copy() if self.feeds_config else {}
+        self.feeds_config = new_config.get('feeds', {})
+        
+        # Check if custom feeds changed
+        old_custom_feeds = old_feeds_config.get('custom_feeds', {})
+        new_custom_feeds = self.feeds_config.get('custom_feeds', {})
+        
+        # Check if enabled feeds changed
+        old_enabled_feeds = set(old_feeds_config.get('enabled_feeds', []))
+        new_enabled_feeds = set(self.feeds_config.get('enabled_feeds', []))
+        
+        feeds_changed = (old_custom_feeds != new_custom_feeds or 
+                         old_enabled_feeds != new_enabled_feeds)
+        
+        if feeds_changed:
+            self.logger.info(f"Feeds configuration updated. Custom feeds: {list(new_custom_feeds.keys())}, Enabled feeds: {list(new_enabled_feeds)}")
+            # Clear headlines cache to force refresh
+            self.current_headlines = []
+            if hasattr(self, 'scroll_helper'):
+                self.scroll_helper.clear_cache()
+            # Trigger immediate update on next display cycle
+            self.last_update = 0  # Force update() to run immediately
+        
+        # Update feed-related settings
+        self.text_color = tuple(self.feeds_config.get('text_color', [255, 255, 255]))
+        self.separator_color = tuple(self.feeds_config.get('separator_color', [255, 0, 0]))
+        self.show_logos = self.feeds_config.get('show_logos', True)
+        default_logo_size = self.display_height - 4 if self.display_height > 4 else self.display_height
+        self.logo_size = self.feeds_config.get('logo_size', default_logo_size)
+        self.feed_logo_map = self.feeds_config.get('feed_logo_map', {})
+        
+        # Update global config settings
+        self.global_config = new_config.get('global', {})
+        
+        # Update display duration
+        self.display_duration = self.global_config.get('display_duration', 30)
+        
+        # Update scroll configuration variables (handle both formats)
+        display_config = self.global_config.get('display', {})
+        if display_config and ('scroll_speed' in display_config or 'scroll_delay' in display_config):
+            # New format: frame-based scrolling
+            self.scroll_speed = display_config.get('scroll_speed', 1.0)
+            self.scroll_delay = display_config.get('scroll_delay', 0.01)
+            self.scroll_pixels_per_second = None
+        else:
+            # Legacy format: time-based scrolling
+            self.scroll_speed = self.global_config.get('scroll_speed', 1.0)
+            self.scroll_delay = self.global_config.get('scroll_delay', 0.01)
+            self.scroll_pixels_per_second = self.global_config.get('scroll_pixels_per_second')
+        
+        # Update dynamic duration settings
+        dynamic_duration_config = self.global_config.get('dynamic_duration', {})
+        if isinstance(dynamic_duration_config, bool):
+            # Legacy: just a boolean
+            self.dynamic_duration_enabled = dynamic_duration_config
+            self.min_duration = self.global_config.get('min_duration', 30)
+            self.max_duration = self.global_config.get('max_duration', 300)
+            self.duration_buffer = self.global_config.get('duration_buffer', 0.1)
+        else:
+            # New format: object with settings
+            self.dynamic_duration_enabled = dynamic_duration_config.get('enabled', True)
+            self.min_duration = dynamic_duration_config.get('min_duration_seconds', 30)
+            self.max_duration = dynamic_duration_config.get('max_duration_seconds', 300)
+            self.duration_buffer = dynamic_duration_config.get('buffer_ratio', 0.1)
+        
+        # Update other global settings
+        self.rotation_enabled = self.global_config.get('rotation_enabled', True)
+        self.rotation_threshold = self.global_config.get('rotation_threshold', 3)
+        self.headlines_per_feed = self.global_config.get('headlines_per_feed', 2)
+        old_font_size = getattr(self, 'font_size', 12)
+        self.font_size = self.global_config.get('font_size', 12)
+        self.target_fps = self.global_config.get('target_fps') or self.global_config.get('scroll_target_fps', 100)
+        
+        # Apply scroll settings to scroll_helper
+        self._configure_scroll_settings()
+        
+        # Update background service configuration
+        self.background_config = self.global_config.get('background_service', {
+            'enabled': True,
+            'request_timeout': 30,
+            'max_retries': 3,
+            'priority': 2
+        })
+        
+        # Reload fonts if font size changed
+        if self.font_size != old_font_size:
+            self.fonts = self._load_fonts()
 
     def update(self) -> None:
         """Update news headlines from all enabled feeds."""
@@ -307,21 +436,39 @@ class NewsTickerPlugin(BasePlugin):
 
         try:
             self.current_headlines = []
+            feed_stats = {'success': 0, 'failed': 0, 'total': 0}
 
             # Fetch from enabled predefined feeds
             enabled_feeds = self.feeds_config.get('enabled_feeds', [])
             for feed_name in enabled_feeds:
                 if feed_name in self.DEFAULT_FEEDS:
+                    feed_stats['total'] += 1
                     headlines = self._fetch_feed_headlines(feed_name, self.DEFAULT_FEEDS[feed_name])
                     if headlines:
                         self.current_headlines.extend(headlines)
+                        feed_stats['success'] += 1
+                    else:
+                        feed_stats['failed'] += 1
 
             # Fetch from custom feeds
             custom_feeds = self.feeds_config.get('custom_feeds', {})
             for feed_name, feed_url in custom_feeds.items():
+                feed_stats['total'] += 1
                 headlines = self._fetch_feed_headlines(feed_name, feed_url)
                 if headlines:
                     self.current_headlines.extend(headlines)
+                    feed_stats['success'] += 1
+                else:
+                    feed_stats['failed'] += 1
+
+            # Log feed status summary
+            if feed_stats['total'] > 0:
+                self.logger.info(
+                    f"Feed update complete: {feed_stats['success']}/{feed_stats['total']} feeds successful, "
+                    f"{len(self.current_headlines)} headlines retrieved"
+                )
+                if feed_stats['failed'] > 0:
+                    self.logger.warning(f"{feed_stats['failed']} feed(s) failed to fetch headlines")
 
             # Limit total headlines and reset rotation tracking
             max_headlines = len(enabled_feeds) * self.headlines_per_feed + len(custom_feeds) * self.headlines_per_feed
@@ -346,15 +493,18 @@ class NewsTickerPlugin(BasePlugin):
         cache_key = f"news_{feed_name}_{datetime.now().strftime('%Y%m%d%H')}"
         update_interval = self.global_config.get('update_interval_seconds', 300)
 
-        # Check cache first
-        cached_data = self.cache_manager.get(cache_key)
-        if cached_data and (time.time() - self.last_update) < update_interval:
+        # Check cache first - cache_manager handles TTL internally
+        cached_data = self.cache_manager.get(cache_key, max_age=update_interval)
+        if cached_data:
             self.logger.debug(f"Using cached headlines for {feed_name}")
             return cached_data
 
         try:
             self.logger.info(f"Fetching headlines from {feed_name}...")
-            response = requests.get(feed_url, timeout=self.background_config.get('request_timeout', 30))
+            headers = {
+                'User-Agent': 'LEDMatrix-NewsPlugin/1.0 (RSS Reader)'
+            }
+            response = requests.get(feed_url, timeout=self.background_config.get('request_timeout', 30), headers=headers)
             response.raise_for_status()
 
             # Parse RSS XML
@@ -674,7 +824,18 @@ class NewsTickerPlugin(BasePlugin):
         """Display message when no headlines are available."""
         img = Image.new('RGB', (self.display_width, self.display_height), (0, 0, 0))
         draw = ImageDraw.Draw(img)
-        draw.text((5, 12), "No News Headlines", font=self.fonts.get('headline', ImageFont.load_default()), fill=(150, 150, 150))
+        
+        # Determine the reason for no headlines
+        enabled_feeds = self.feeds_config.get('enabled_feeds', [])
+        custom_feeds = self.feeds_config.get('custom_feeds', {})
+        total_feeds = len(enabled_feeds) + len(custom_feeds)
+        
+        if total_feeds == 0:
+            message = "No Feeds Enabled"
+        else:
+            message = "No Headlines Available"
+        
+        draw.text((5, 12), message, font=self.fonts.get('headline', ImageFont.load_default()), fill=(150, 150, 150))
 
         self.display_manager.image = img
         self.display_manager.update_display()
