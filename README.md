@@ -79,8 +79,7 @@ Custom feeds are configured as an array of feed objects, each with a name, URL, 
         "url": "https://local-sports.com/feed.xml",
         "enabled": true
       }
-    ],
-    "custom_feed_order": ["Tech News", "Local Sports"]
+    ]
   }
 }
 ```
@@ -89,11 +88,10 @@ Custom feeds are configured as an array of feed objects, each with a name, URL, 
 - `url` (required): RSS feed URL (must be valid URI)
 - `enabled` (optional, default: true): Whether this feed is enabled
 - `logo` (optional): Logo file upload object (upload via web UI)
-- `custom_feed_order` (optional): Explicit ordering of feeds. If not provided, uses array order.
 
 **Feed Management:**
 - Enable/disable individual feeds using the `enabled` field
-- Control feed processing order with `custom_feed_order` array
+- Feeds are processed in the order they appear in the `custom_feeds` array
 - Upload custom logos directly via the web UI (similar to static-image plugin)
 - Maximum 50 custom feeds allowed
 

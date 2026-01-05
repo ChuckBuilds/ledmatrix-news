@@ -281,9 +281,6 @@ class NewsTickerPlugin(BasePlugin):
         elif custom_feeds is None:
             self.feeds_config['custom_feeds'] = []  # Ensure it's an empty list if not present
         
-        # Ensure custom_feed_order is present if custom_feeds exist
-        if 'custom_feed_order' not in self.feeds_config and isinstance(self.feeds_config.get('custom_feeds'), list):
-            self.feeds_config['custom_feed_order'] = [f.get('name') for f in self.feeds_config['custom_feeds'] if isinstance(f, dict) and f.get('name')]
 
     def _configure_scroll_settings(self) -> None:
         """
@@ -408,16 +405,6 @@ class NewsTickerPlugin(BasePlugin):
                         return False
                     if 'path' not in logo:
                         self.logger.error(f"Custom feed '{feed_name}' logo object must have 'path' field")
-                        return False
-            # Validate custom_feed_order if present
-            custom_feed_order = self.feeds_config.get('custom_feed_order', [])
-            if custom_feed_order:
-                if not isinstance(custom_feed_order, list):
-                    self.logger.error("custom_feed_order must be an array")
-                    return False
-                for order_name in custom_feed_order:
-                    if order_name not in feed_names:
-                        self.logger.error(f"custom_feed_order contains feed name '{order_name}' that doesn't exist in custom_feeds")
                         return False
         else:
             self.logger.error("custom_feeds must be either a dictionary (old format) or an array (new format)")
@@ -566,33 +553,20 @@ class NewsTickerPlugin(BasePlugin):
                     else:
                         feed_stats['failed'] += 1
 
-            # Fetch from custom feeds (new array format)
+            # Fetch from custom feeds (use array order)
             custom_feeds = self.feeds_config.get('custom_feeds', [])
-            custom_feed_order = self.feeds_config.get('custom_feed_order', [])
             
             # Handle both old dict format (backward compatibility) and new array format
             if isinstance(custom_feeds, dict):
                 # Old format - process all feeds
                 feed_list = [(name, url) for name, url in custom_feeds.items()]
             elif isinstance(custom_feeds, list):
-                # New format - filter by enabled and respect order
-                # Build feed list based on custom_feed_order if provided
-                if custom_feed_order:
-                    # Use explicit order, only include enabled feeds
-                    feed_dict = {feed.get('name'): feed for feed in custom_feeds if isinstance(feed, dict)}
-                    feed_list = []
-                    for name in custom_feed_order:
-                        if name in feed_dict:
-                            feed_obj = feed_dict[name]
-                            if feed_obj.get('enabled', True):
-                                feed_list.append((feed_obj.get('name'), feed_obj.get('url')))
-                else:
-                    # Use array order, only include enabled feeds
-                    feed_list = [
-                        (feed.get('name'), feed.get('url'))
-                        for feed in custom_feeds
-                        if isinstance(feed, dict) and feed.get('enabled', True)
-                    ]
+                # New format - filter by enabled and use array order
+                feed_list = [
+                    (feed.get('name'), feed.get('url'))
+                    for feed in custom_feeds
+                    if isinstance(feed, dict) and feed.get('enabled', True)
+                ]
             else:
                 feed_list = []
             

@@ -244,17 +244,6 @@
             "additionalProperties": false
           }
         },
-        "custom_feed_order": {
-          "type": "array",
-          "description": "Explicit ordering of custom feeds. If not provided, uses array order from custom_feeds.",
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 100
-          },
-          "uniqueItems": true,
-          "minItems": 0
-        },
         "text_color": {
           "type": "array",
           "items": {
