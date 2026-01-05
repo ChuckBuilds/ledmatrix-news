@@ -181,8 +181,8 @@
           "uniqueItems": true,
           "minItems": 0,
           "maxItems": 9,
-          "default": ["NFL", "NCAA FB"],
-          "description": "List of enabled predefined RSS feeds. Maximum 9 feeds (all available predefined feeds)."
+          "default": [],
+          "description": "List of enabled predefined RSS feeds. Maximum 9 feeds (all available predefined feeds). All feeds are available to select but disabled by default."
         },
         "custom_feeds": {
           "type": "array",
