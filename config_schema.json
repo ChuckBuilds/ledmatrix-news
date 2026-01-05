@@ -173,6 +173,20 @@
       "properties": {
         "enabled_feeds": {
           "type": "array",
+          "x-widget": "checkbox-group",
+          "x-options": {
+            "labels": {
+              "MLB": "MLB",
+              "NFL": "NFL",
+              "NCAA FB": "NCAA Football",
+              "NHL": "NHL",
+              "NBA": "NBA",
+              "TOP SPORTS": "Top Sports",
+              "BIG10": "Big Ten",
+              "NCAA": "NCAA",
+              "Other": "Other"
+            }
+          },
           "items": {
             "type": "string",
             "enum": ["MLB", "NFL", "NCAA FB", "NHL", "NBA", "TOP SPORTS", "BIG10", "NCAA", "Other"],
@@ -182,7 +196,7 @@
           "minItems": 0,
           "maxItems": 9,
           "default": [],
-          "description": "List of enabled predefined RSS feeds. Maximum 9 feeds (all available predefined feeds). All feeds are available to select but disabled by default."
+          "description": "List of enabled predefined RSS feeds. Maximum 9 feeds (all available predefined feeds). All feeds are available to select but disabled by default. Use the checkboxes below to enable the corresponding RSS feeds."
         },
         "custom_feeds": {
           "type": "array",
