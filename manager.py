@@ -245,6 +245,46 @@ class NewsTickerPlugin(BasePlugin):
             }
         return fonts
 
+    def _migrate_custom_feeds_format(self) -> None:
+        """
+        Migrate custom_feeds from old dict format to new array format.
+        Also migrates feed_logo_map entries into the new logo object structure.
+        """
+        custom_feeds = self.feeds_config.get('custom_feeds')
+        feed_logo_map = self.feeds_config.get('feed_logo_map', {})
+
+        if isinstance(custom_feeds, dict):
+            self.logger.info("Migrating custom_feeds from dictionary to array format.")
+            new_custom_feeds = []
+            for name, url in custom_feeds.items():
+                feed_obj = {
+                    "name": name,
+                    "url": url,
+                    "enabled": True  # Default to enabled
+                }
+                if name in feed_logo_map:
+                    logo_filename = feed_logo_map[name]
+                    # Assuming logos are stored in a plugin-specific assets/logos directory
+                    logo_path = f"plugins/{self.plugin_id}/assets/logos/{logo_filename}"
+                    feed_obj["logo"] = {
+                        "id": f"{name.lower().replace(' ', '-')}-logo",
+                        "path": logo_path,
+                        "uploaded_at": datetime.now(timezone.utc).isoformat()
+                    }
+                    self.logger.info(f"Migrated logo for '{name}' to new format.")
+                new_custom_feeds.append(feed_obj)
+            self.feeds_config['custom_feeds'] = new_custom_feeds
+            # Remove old feed_logo_map after migration
+            if 'feed_logo_map' in self.feeds_config:
+                del self.feeds_config['feed_logo_map']
+            self.logger.info("Custom feeds migration complete.")
+        elif custom_feeds is None:
+            self.feeds_config['custom_feeds'] = []  # Ensure it's an empty list if not present
+        
+        # Ensure custom_feed_order is present if custom_feeds exist
+        if 'custom_feed_order' not in self.feeds_config and isinstance(self.feeds_config.get('custom_feeds'), list):
+            self.feeds_config['custom_feed_order'] = [f.get('name') for f in self.feeds_config['custom_feeds'] if isinstance(f, dict) and f.get('name')]
+
     def _configure_scroll_settings(self) -> None:
         """
         Configure scroll helper with current settings.
