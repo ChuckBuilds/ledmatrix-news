@@ -962,7 +962,8 @@ class NewsTickerPlugin(BasePlugin):
 
             # Calculate total width
             total_width = logo_width + logo_spacing + feed_width + title_width + separator_width + 32  # Add padding
-            total_height = max(title_height, feed_height, self.logo_size if logo else 0) + 4  # Add padding
+            # Use full display height to ensure proper vertical centering when pasted by ScrollHelper
+            total_height = self.display_height
 
             # Create image for this headline
             headline_img = Image.new('RGB', (total_width, total_height), (0, 0, 0))
@@ -973,7 +974,7 @@ class NewsTickerPlugin(BasePlugin):
 
             # Draw logo if available (replaces feed name and separator)
             if logo:
-                # Center logo vertically
+                # Center logo vertically within display height
                 logo_y = (total_height - logo.height) // 2
                 headline_img.paste(logo, (current_x, logo_y), logo if logo.mode == 'RGBA' else None)
                 current_x += logo_width + logo_spacing
