@@ -765,6 +765,14 @@ class NewsTickerPlugin(BasePlugin):
                 self.scroll_helper.clear_cache()
                 return
 
+            # Log headline widths for debugging
+            headline_widths = [img.width for img in headline_images]
+            total_headline_width = sum(headline_widths)
+            self.logger.debug(
+                "Preparing scrolling image: %d headlines, widths=%s, total=%dpx",
+                len(headline_images), headline_widths, total_headline_width
+            )
+            
             # Use ScrollHelper to create the scrolling image
             self.scroll_helper.create_scrolling_image(
                 headline_images,
@@ -774,8 +782,12 @@ class NewsTickerPlugin(BasePlugin):
             # Dynamic duration is automatically calculated by create_scrolling_image()
             self._cycle_complete = False
 
-            self.logger.info(f"Created news ticker image with {len(headline_images)} headlines")
-            self.logger.info(f"Dynamic duration: {self.scroll_helper.get_dynamic_duration()}s")
+            self.logger.info(
+                "Created news ticker image: %d headlines, total_scroll_width=%dpx, dynamic_duration=%ds",
+                len(headline_images),
+                self.scroll_helper.total_scroll_width,
+                self.scroll_helper.get_dynamic_duration()
+            )
 
         except Exception as e:
             self.logger.error(f"Error creating news ticker image: {e}")
