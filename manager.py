@@ -176,6 +176,7 @@ class NewsTickerPlugin(BasePlugin):
         
         # Enable scrolling for high FPS mode
         self.enable_scrolling = True
+        self.logger.info(f"News ticker enable_scrolling set to: {self.enable_scrolling}")
 
         # Configure ScrollHelper with plugin settings
         self._configure_scroll_settings()
