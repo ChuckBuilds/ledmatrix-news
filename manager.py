@@ -297,8 +297,17 @@ class NewsTickerPlugin(BasePlugin):
                 
                 # Get the full config from config_manager
                 full_config = self.plugin_manager.config_manager.load_config()
-                # Update this plugin's section in the full config
-                full_config[self.plugin_id] = self.config
+                # Merge the migrated config into the existing plugin config (don't replace entire config)
+                if self.plugin_id not in full_config:
+                    full_config[self.plugin_id] = {}
+                # Merge feeds config into existing plugin config
+                if 'feeds' not in full_config[self.plugin_id]:
+                    full_config[self.plugin_id]['feeds'] = {}
+                full_config[self.plugin_id]['feeds'].update(self.feeds_config)
+                # Remove feed_logo_map if it exists in the saved config
+                if 'feeds' in full_config[self.plugin_id] and 'feed_logo_map' in full_config[self.plugin_id]['feeds']:
+                    del full_config[self.plugin_id]['feeds']['feed_logo_map']
+                
                 # Save the full config back to disk
                 self.plugin_manager.config_manager.save_config(full_config)
                 self.logger.info("Persisted migrated custom_feeds format to disk.")
@@ -763,6 +772,19 @@ class NewsTickerPlugin(BasePlugin):
                     elapsed_time if elapsed_time is not None else -1.0,
                     scroll_info.get('dynamic_duration'),
                 )
+                
+                # Increment rotation count and check if we should rotate headlines
+                if self.rotation_enabled:
+                    self.rotation_count += 1
+                    self.logger.debug(f"Rotation count: {self.rotation_count}/{self.rotation_threshold}")
+                    
+                    if self.rotation_count >= self.rotation_threshold:
+                        self._rotate_headlines()
+                        self.rotation_count = 0
+                        # Clear scroll cache to force recreation with new headline order
+                        self.scroll_helper.clear_cache()
+                        self.logger.info("Headlines rotated - scroll cache cleared for next cycle")
+            
             self._cycle_complete = True
 
         # Get visible portion
@@ -1042,6 +1064,19 @@ class NewsTickerPlugin(BasePlugin):
         self.display_manager.image = img
         self.display_manager.update_display()
 
+    def is_cycle_complete(self) -> bool:
+        """
+        Check if the news ticker scroll cycle is complete.
+        
+        This method is called by the display controller to determine when
+        to switch to the next plugin. Returns True only when the scroll
+        has completed its full cycle, ensuring headlines aren't cut off.
+        
+        Returns:
+            bool: True if scroll cycle is complete, False otherwise
+        """
+        return self._cycle_complete
+
     def get_display_duration(self) -> float:
         """Get display duration, using dynamic duration if enabled."""
         # If dynamic duration is enabled and scroll helper has calculated a duration, use it
@@ -1082,6 +1117,24 @@ class NewsTickerPlugin(BasePlugin):
             'feed_logo_map': self.feed_logo_map
         })
         return info
+
+    def _rotate_headlines(self) -> None:
+        """
+        Rotate headlines to show fresh content.
+        
+        Moves the first headline to the end of the list, ensuring that
+        different headlines are shown first on subsequent cycles. This
+        provides content freshness without waiting for RSS feed updates.
+        """
+        if len(self.current_headlines) > 1:
+            # Move first headline to end
+            first_headline = self.current_headlines.pop(0)
+            self.current_headlines.append(first_headline)
+            self.logger.info(
+                "Rotated headlines: '%s' moved to end (now showing: '%s' first)",
+                first_headline.get('title', 'Unknown')[:50],
+                self.current_headlines[0].get('title', 'Unknown')[:50]
+            )
 
     def cleanup(self) -> None:
         """Cleanup resources."""
