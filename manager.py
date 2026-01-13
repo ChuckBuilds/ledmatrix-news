@@ -133,14 +133,17 @@ class NewsTickerPlugin(BasePlugin):
         self.text_color = tuple(self.feeds_config.get('text_color', [255, 255, 255]))
         self.separator_color = tuple(self.feeds_config.get('separator_color', [255, 0, 0]))
 
+        # Migrate old custom_feeds format to new array format if needed
+        self._migrate_custom_feeds_format()
+        
         # Logo settings
         self.show_logos = self.feeds_config.get('show_logos', True)
         # Logo size defaults to display height minus 4 pixels for margin, but can be overridden
         default_logo_size = self.display_height - 4 if self.display_height > 4 else self.display_height
         self.logo_size = self.feeds_config.get('logo_size', default_logo_size)
         
-        # Feed logo mapping - allows users to specify custom logo file names per feed
-        # Format: {"Feed Name": "logo_filename.png"}
+        # Feed logo mapping - kept for backward compatibility during migration
+        # New format uses logo objects in feed items
         self.feed_logo_map = self.feeds_config.get('feed_logo_map', {})
 
         # Background service configuration
@@ -179,11 +182,16 @@ class NewsTickerPlugin(BasePlugin):
 
         # Log enabled feeds
         enabled_feeds = self.feeds_config.get('enabled_feeds', [])
-        custom_feeds = list(self.feeds_config.get('custom_feeds', {}).keys())
+        custom_feeds = self.feeds_config.get('custom_feeds', [])
+        if isinstance(custom_feeds, list):
+            custom_feed_names = [feed.get('name', '') for feed in custom_feeds if isinstance(feed, dict)]
+        else:
+            # Old format fallback
+            custom_feed_names = list(custom_feeds.keys()) if isinstance(custom_feeds, dict) else []
 
         self.logger.info("News ticker plugin initialized")
         self.logger.info(f"Enabled predefined feeds: {enabled_feeds}")
-        self.logger.info(f"Custom feeds: {custom_feeds}")
+        self.logger.info(f"Custom feeds: {custom_feed_names}")
         self.logger.info(f"Display dimensions: {self.display_width}x{self.display_height}")
         if hasattr(self.scroll_helper, 'frame_based_scrolling') and self.scroll_helper.frame_based_scrolling:
             pixels_per_second = self.scroll_speed / self.scroll_delay if self.scroll_delay > 0 else self.scroll_speed * 100
@@ -236,6 +244,68 @@ class NewsTickerPlugin(BasePlugin):
                 'info': default_font
             }
         return fonts
+
+    def _migrate_custom_feeds_format(self) -> None:
+        """
+        Migrate custom_feeds from old dict format to new array format.
+        Also migrates feed_logo_map entries into the new logo object structure.
+        
+        Updates self.feeds_config and self.config in memory, then persists the
+        migrated format to disk via ConfigManager to prevent re-running on each startup.
+        """
+        custom_feeds = self.feeds_config.get('custom_feeds')
+        feed_logo_map = self.feeds_config.get('feed_logo_map', {})
+        migration_performed = False
+
+        if isinstance(custom_feeds, dict):
+            self.logger.info("Migrating custom_feeds from dictionary to array format.")
+            new_custom_feeds = []
+            for name, url in custom_feeds.items():
+                feed_obj = {
+                    "name": name,
+                    "url": url,
+                    "enabled": True  # Default to enabled
+                }
+                if name in feed_logo_map:
+                    logo_filename = feed_logo_map[name]
+                    # Assuming logos are stored in a plugin-specific assets/logos directory
+                    logo_path = f"plugins/{self.plugin_id}/assets/logos/{logo_filename}"
+                    feed_obj["logo"] = {
+                        "id": f"{name.lower().replace(' ', '-')}-logo",
+                        "path": logo_path,
+                        "uploaded_at": datetime.now(timezone.utc).isoformat()
+                    }
+                    self.logger.info(f"Migrated logo for '{name}' to new format.")
+                new_custom_feeds.append(feed_obj)
+            self.feeds_config['custom_feeds'] = new_custom_feeds
+            # Remove old feed_logo_map after migration
+            if 'feed_logo_map' in self.feeds_config:
+                del self.feeds_config['feed_logo_map']
+            migration_performed = True
+            self.logger.info("Custom feeds migration complete.")
+        elif custom_feeds is None:
+            self.feeds_config['custom_feeds'] = []  # Ensure it's an empty list if not present
+            migration_performed = True
+        
+        # Persist migrated config to disk if migration was performed
+        if migration_performed and self.plugin_manager and hasattr(self.plugin_manager, 'config_manager') and self.plugin_manager.config_manager:
+            try:
+                # Update self.config to reflect the migrated format
+                if 'feeds' not in self.config:
+                    self.config['feeds'] = {}
+                self.config['feeds'].update(self.feeds_config)
+                
+                # Get the full config from config_manager
+                full_config = self.plugin_manager.config_manager.load_config()
+                # Update this plugin's section in the full config
+                full_config[self.plugin_id] = self.config
+                # Save the full config back to disk
+                self.plugin_manager.config_manager.save_config(full_config)
+                self.logger.info("Persisted migrated custom_feeds format to disk.")
+            except Exception as e:
+                self.logger.error(f"Error persisting migrated config to disk: {e}", exc_info=True)
+                # Continue even if save fails - migration is still applied in memory
+        
 
     def _configure_scroll_settings(self) -> None:
         """
@@ -304,25 +374,66 @@ class NewsTickerPlugin(BasePlugin):
             self.logger.error("enabled_feeds must be a list")
             return False
         
-        # Validate custom_feeds is a dict if present
-        custom_feeds = self.feeds_config.get('custom_feeds', {})
-        if not isinstance(custom_feeds, dict):
-            self.logger.error("custom_feeds must be a dictionary")
-            return False
-        
-        # Validate custom feed URLs
-        for feed_name, feed_url in custom_feeds.items():
-            if not isinstance(feed_url, str) or not feed_url.strip():
-                self.logger.error(f"Custom feed '{feed_name}' has invalid URL: must be a non-empty string")
-                return False
-            try:
-                parsed = urlparse(feed_url)
-                if not parsed.scheme or not parsed.netloc:
-                    self.logger.error(f"Custom feed '{feed_name}' has invalid URL format: {feed_url}")
+        # Validate custom_feeds - support both old dict format and new array format
+        custom_feeds = self.feeds_config.get('custom_feeds', [])
+        if isinstance(custom_feeds, dict):
+            # Old format validation
+            for feed_name, feed_url in custom_feeds.items():
+                if not isinstance(feed_url, str) or not feed_url.strip():
+                    self.logger.error(f"Custom feed '{feed_name}' has invalid URL: must be a non-empty string")
                     return False
-            except Exception as e:
-                self.logger.error(f"Custom feed '{feed_name}' URL validation error: {e}")
-                return False
+                try:
+                    parsed = urlparse(feed_url)
+                    if not parsed.scheme or not parsed.netloc:
+                        self.logger.error(f"Custom feed '{feed_name}' has invalid URL format: {feed_url}")
+                        return False
+                except Exception as e:
+                    self.logger.error(f"Custom feed '{feed_name}' URL validation error: {e}")
+                    return False
+        elif isinstance(custom_feeds, list):
+            # New format validation
+            feed_names = set()
+            for idx, feed in enumerate(custom_feeds):
+                if not isinstance(feed, dict):
+                    self.logger.error(f"Custom feed at index {idx} must be an object")
+                    return False
+                
+                feed_name = feed.get('name')
+                if not isinstance(feed_name, str) or not feed_name.strip():
+                    self.logger.error(f"Custom feed at index {idx} has invalid name: must be a non-empty string")
+                    return False
+                
+                if feed_name in feed_names:
+                    self.logger.error(f"Duplicate custom feed name: '{feed_name}'")
+                    return False
+                feed_names.add(feed_name)
+                
+                feed_url = feed.get('url')
+                if not isinstance(feed_url, str) or not feed_url.strip():
+                    self.logger.error(f"Custom feed '{feed_name}' has invalid URL: must be a non-empty string")
+                    return False
+                
+                try:
+                    parsed = urlparse(feed_url)
+                    if not parsed.scheme or not parsed.netloc:
+                        self.logger.error(f"Custom feed '{feed_name}' has invalid URL format: {feed_url}")
+                        return False
+                except Exception as e:
+                    self.logger.error(f"Custom feed '{feed_name}' URL validation error: {e}")
+                    return False
+                
+                # Validate logo object if present
+                logo = feed.get('logo')
+                if logo is not None:
+                    if not isinstance(logo, dict):
+                        self.logger.error(f"Custom feed '{feed_name}' has invalid logo: must be an object")
+                        return False
+                    if 'path' not in logo:
+                        self.logger.error(f"Custom feed '{feed_name}' logo object must have 'path' field")
+                        return False
+        else:
+            self.logger.error("custom_feeds must be either a dictionary (old format) or an array (new format)")
+            return False
         
         # Validate global configuration
         if not isinstance(self.global_config, dict):
@@ -344,19 +455,35 @@ class NewsTickerPlugin(BasePlugin):
         old_feeds_config = self.feeds_config.copy() if self.feeds_config else {}
         self.feeds_config = new_config.get('feeds', {})
         
+        # Migrate old format if needed
+        self._migrate_custom_feeds_format()
+        
         # Check if custom feeds changed
-        old_custom_feeds = old_feeds_config.get('custom_feeds', {})
-        new_custom_feeds = self.feeds_config.get('custom_feeds', {})
+        old_custom_feeds = old_feeds_config.get('custom_feeds', [])
+        new_custom_feeds = self.feeds_config.get('custom_feeds', [])
         
         # Check if enabled feeds changed
         old_enabled_feeds = set(old_feeds_config.get('enabled_feeds', []))
         new_enabled_feeds = set(self.feeds_config.get('enabled_feeds', []))
         
-        feeds_changed = (old_custom_feeds != new_custom_feeds or 
+        # Compare custom feeds (handle both formats)
+        def normalize_custom_feeds(feeds):
+            if isinstance(feeds, dict):
+                return sorted(feeds.items())
+            elif isinstance(feeds, list):
+                return sorted([(f.get('name'), f.get('url')) for f in feeds if isinstance(f, dict)])
+            return []
+        
+        feeds_changed = (normalize_custom_feeds(old_custom_feeds) != normalize_custom_feeds(new_custom_feeds) or
                          old_enabled_feeds != new_enabled_feeds)
         
         if feeds_changed:
-            self.logger.info(f"Feeds configuration updated. Custom feeds: {list(new_custom_feeds.keys())}, Enabled feeds: {list(new_enabled_feeds)}")
+            # Get feed names for logging
+            if isinstance(new_custom_feeds, list):
+                custom_feed_names = [f.get('name') for f in new_custom_feeds if isinstance(f, dict)]
+            else:
+                custom_feed_names = list(new_custom_feeds.keys()) if isinstance(new_custom_feeds, dict) else []
+            self.logger.info(f"Feeds configuration updated. Custom feeds: {custom_feed_names}, Enabled feeds: {list(new_enabled_feeds)}")
             # Clear headlines cache to force refresh
             self.current_headlines = []
             if hasattr(self, 'scroll_helper'):
@@ -370,6 +497,7 @@ class NewsTickerPlugin(BasePlugin):
         self.show_logos = self.feeds_config.get('show_logos', True)
         default_logo_size = self.display_height - 4 if self.display_height > 4 else self.display_height
         self.logo_size = self.feeds_config.get('logo_size', default_logo_size)
+        # Keep feed_logo_map for backward compatibility
         self.feed_logo_map = self.feeds_config.get('feed_logo_map', {})
         
         # Update global config settings
@@ -450,9 +578,26 @@ class NewsTickerPlugin(BasePlugin):
                     else:
                         feed_stats['failed'] += 1
 
-            # Fetch from custom feeds
-            custom_feeds = self.feeds_config.get('custom_feeds', {})
-            for feed_name, feed_url in custom_feeds.items():
+            # Fetch from custom feeds (use array order)
+            custom_feeds = self.feeds_config.get('custom_feeds', [])
+            
+            # Handle both old dict format (backward compatibility) and new array format
+            if isinstance(custom_feeds, dict):
+                # Old format - process all feeds
+                feed_list = [(name, url) for name, url in custom_feeds.items()]
+            elif isinstance(custom_feeds, list):
+                # New format - filter by enabled and use array order
+                feed_list = [
+                    (feed.get('name'), feed.get('url'))
+                    for feed in custom_feeds
+                    if isinstance(feed, dict) and feed.get('enabled', True)
+                ]
+            else:
+                feed_list = []
+            
+            for feed_name, feed_url in feed_list:
+                if not feed_name or not feed_url:
+                    continue
                 feed_stats['total'] += 1
                 headlines = self._fetch_feed_headlines(feed_name, feed_url)
                 if headlines:
@@ -471,7 +616,14 @@ class NewsTickerPlugin(BasePlugin):
                     self.logger.warning(f"{feed_stats['failed']} feed(s) failed to fetch headlines")
 
             # Limit total headlines and reset rotation tracking
-            max_headlines = len(enabled_feeds) * self.headlines_per_feed + len(custom_feeds) * self.headlines_per_feed
+            # Count enabled custom feeds
+            custom_feeds_list = self.feeds_config.get('custom_feeds', [])
+            if isinstance(custom_feeds_list, dict):
+                enabled_custom_count = len(custom_feeds_list)
+            else:
+                enabled_custom_count = sum(1 for feed in custom_feeds_list if isinstance(feed, dict) and feed.get('enabled', True))
+            
+            max_headlines = len(enabled_feeds) * self.headlines_per_feed + enabled_custom_count * self.headlines_per_feed
             if len(self.current_headlines) > max_headlines:
                 self.current_headlines = self.current_headlines[:max_headlines]
 
@@ -491,7 +643,7 @@ class NewsTickerPlugin(BasePlugin):
     def _fetch_feed_headlines(self, feed_name: str, feed_url: str) -> List[Dict]:
         """Fetch headlines from a specific RSS feed."""
         cache_key = f"news_{feed_name}_{datetime.now().strftime('%Y%m%d%H')}"
-        update_interval = self.global_config.get('update_interval_seconds', 300)
+        update_interval = self.global_config.get('update_interval', 300)
 
         # Check cache first - cache_manager handles TTL internally
         cached_data = self.cache_manager.get(cache_key, max_age=update_interval)
@@ -638,6 +790,14 @@ class NewsTickerPlugin(BasePlugin):
                 self.scroll_helper.clear_cache()
                 return
 
+            # Log headline widths for debugging
+            headline_widths = [img.width for img in headline_images]
+            total_headline_width = sum(headline_widths)
+            self.logger.debug(
+                "Preparing scrolling image: %d headlines, widths=%s, total=%dpx",
+                len(headline_images), headline_widths, total_headline_width
+            )
+            
             # Use ScrollHelper to create the scrolling image
             self.scroll_helper.create_scrolling_image(
                 headline_images,
@@ -647,8 +807,12 @@ class NewsTickerPlugin(BasePlugin):
             # Dynamic duration is automatically calculated by create_scrolling_image()
             self._cycle_complete = False
 
-            self.logger.info(f"Created news ticker image with {len(headline_images)} headlines")
-            self.logger.info(f"Dynamic duration: {self.scroll_helper.get_dynamic_duration()}s")
+            self.logger.info(
+                "Created news ticker image: %d headlines, total_scroll_width=%dpx, dynamic_duration=%ds",
+                len(headline_images),
+                self.scroll_helper.total_scroll_width,
+                self.scroll_helper.get_dynamic_duration()
+            )
 
         except Exception as e:
             self.logger.error(f"Error creating news ticker image: {e}")
@@ -659,17 +823,40 @@ class NewsTickerPlugin(BasePlugin):
         Get the path to a feed's logo file.
         
         Priority order:
-        1. User-configured feed_logo_map (custom logo file names)
-        2. Predefined FEED_LOGO_MAP
-        3. Infer from feed name
-        4. Default fallback
+        1. Integrated logo from feed object (new format) - logo.path field
+        2. User-configured feed_logo_map (backward compatibility)
+        3. Predefined FEED_LOGO_MAP
+        4. Infer from feed name
+        5. Default fallback
         
         Checks directories in order:
-        1. assets/news_logos/ (primary location for news logos)
-        2. assets/broadcast_logos/ (fallback for broadcast network logos)
-        3. Plugin assets/logos/ (plugin-specific logos)
+        1. Uploaded logo path from feed object (if present)
+        2. assets/news_logos/ (primary location for news logos)
+        3. assets/broadcast_logos/ (fallback for broadcast network logos)
+        4. Plugin assets/logos/ (plugin-specific logos)
         """
-        # First check user-configured logo map
+        # First check new format - integrated logo in feed object
+        custom_feeds = self.feeds_config.get('custom_feeds', [])
+        if isinstance(custom_feeds, list):
+            for feed in custom_feeds:
+                if isinstance(feed, dict) and feed.get('name') == feed_name:
+                    logo_obj = feed.get('logo')
+                    if isinstance(logo_obj, dict) and 'path' in logo_obj:
+                        logo_path_str = logo_obj['path']
+                        if logo_path_str:
+                            # Try absolute path first, then relative to project root
+                            logo_path = Path(logo_path_str)
+                            if logo_path.is_absolute() and logo_path.exists():
+                                self.logger.debug(f"Found logo for {feed_name} at {logo_path} (from feed object)")
+                                return logo_path
+                            # Try relative to project root
+                            project_root = Path(__file__).parent.parent.parent
+                            logo_path = project_root / logo_path_str
+                            if logo_path.exists():
+                                self.logger.debug(f"Found logo for {feed_name} at {logo_path} (from feed object, relative path)")
+                                return logo_path
+        
+        # Fall back to old format - check user-configured logo map
         logo_filename = self.feed_logo_map.get(feed_name)
         
         # If not in user config, check predefined mapping
@@ -786,7 +973,8 @@ class NewsTickerPlugin(BasePlugin):
 
             # Calculate total width
             total_width = logo_width + logo_spacing + feed_width + title_width + separator_width + 32  # Add padding
-            total_height = max(title_height, feed_height, self.logo_size if logo else 0) + 4  # Add padding
+            # Use full display height to ensure proper vertical centering when pasted by ScrollHelper
+            total_height = self.display_height
 
             # Create image for this headline
             headline_img = Image.new('RGB', (total_width, total_height), (0, 0, 0))
@@ -797,7 +985,7 @@ class NewsTickerPlugin(BasePlugin):
 
             # Draw logo if available (replaces feed name and separator)
             if logo:
-                # Center logo vertically
+                # Center logo vertically within display height
                 logo_y = (total_height - logo.height) // 2
                 headline_img.paste(logo, (current_x, logo_y), logo if logo.mode == 'RGBA' else None)
                 current_x += logo_width + logo_spacing
@@ -857,10 +1045,10 @@ class NewsTickerPlugin(BasePlugin):
     def get_display_duration(self) -> float:
         """Get display duration, using dynamic duration if enabled."""
         # If dynamic duration is enabled and scroll helper has calculated a duration, use it
-        if (self.dynamic_duration_enabled and 
-            hasattr(self.scroll_helper, 'calculated_duration') and 
-            self.scroll_helper.calculated_duration > 0):
-            return float(self.scroll_helper.calculated_duration)
+        if self.dynamic_duration_enabled:
+            duration = self.scroll_helper.get_dynamic_duration()
+            if duration > 0:
+                return float(duration)
         
         # Fallback to configured duration
         return float(self.display_duration)
@@ -868,10 +1056,18 @@ class NewsTickerPlugin(BasePlugin):
     def get_info(self) -> Dict[str, Any]:
         """Return plugin info for web UI."""
         info = super().get_info()
+        
+        # Get custom feed names (handle both formats)
+        custom_feeds = self.feeds_config.get('custom_feeds', [])
+        if isinstance(custom_feeds, list):
+            custom_feed_names = [feed.get('name', '') for feed in custom_feeds if isinstance(feed, dict)]
+        else:
+            custom_feed_names = list(custom_feeds.keys()) if isinstance(custom_feeds, dict) else []
+        
         info.update({
             'total_headlines': len(self.current_headlines),
             'enabled_feeds': self.feeds_config.get('enabled_feeds', []),
-            'custom_feeds': list(self.feeds_config.get('custom_feeds', {}).keys()),
+            'custom_feeds': custom_feed_names,
             'last_update': self.last_update,
             'display_duration': self.display_duration,
             'scroll_speed': self.scroll_speed,

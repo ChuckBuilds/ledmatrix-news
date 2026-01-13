@@ -33,9 +33,6 @@ A plugin for LEDMatrix that displays scrolling news headlines from RSS feeds inc
 - `display_duration`: How long to show the ticker (10-300 seconds, default: 30)
 - `display.scroll_speed`: Scrolling speed in pixels per frame (0.5-5.0, default: 1.0) - **Recommended format**
 - `display.scroll_delay`: Delay between scroll steps in seconds (0.001-0.1, default: 0.01) - **Recommended format**
-- `scroll_speed`: [Deprecated] Legacy scrolling speed multiplier - use `display.scroll_speed` instead
-- `scroll_delay`: [Deprecated] Legacy delay setting - use `display.scroll_delay` instead
-- `scroll_pixels_per_second`: [Deprecated] Legacy time-based scrolling - use frame-based `display.scroll_speed` and `display.scroll_delay` instead
 - `target_fps`: Target frames per second for scrolling (30-200, default: 100)
 - `dynamic_duration`: Enable dynamic duration based on content width (default: true)
   - `enabled`: Enable/disable dynamic duration (default: true)
@@ -61,16 +58,42 @@ A plugin for LEDMatrix that displays scrolling news headlines from RSS feeds inc
 
 #### Custom RSS Feeds
 
+Custom feeds are configured as an array of feed objects, each with a name, URL, enabled status, and optional logo:
+
 ```json
 {
   "feeds": {
-    "custom_feeds": {
-      "Tech News": "https://example.com/rss.xml",
-      "Local Sports": "https://local-sports.com/feed.xml"
-    }
+    "custom_feeds": [
+      {
+        "name": "Tech News",
+        "url": "https://example.com/rss.xml",
+        "enabled": true,
+        "logo": {
+          "id": "tech-news-logo",
+          "path": "plugins/ledmatrix-news/assets/logos/tech-news-logo.png",
+          "uploaded_at": "2024-01-01T00:00:00Z"
+        }
+      },
+      {
+        "name": "Local Sports",
+        "url": "https://local-sports.com/feed.xml",
+        "enabled": true
+      }
+    ]
   }
 }
 ```
+
+- `name` (required): Feed name (1-100 characters)
+- `url` (required): RSS feed URL (must be valid URI)
+- `enabled` (optional, default: true): Whether this feed is enabled
+- `logo` (optional): Logo file upload object (upload via web UI)
+
+**Feed Management:**
+- Enable/disable individual feeds using the `enabled` field
+- Feeds are processed in the order they appear in the `custom_feeds` array
+- Upload custom logos directly via the web UI (similar to static-image plugin)
+- Maximum 50 custom feeds allowed
 
 #### Display Colors
 
@@ -90,17 +113,25 @@ A plugin for LEDMatrix that displays scrolling news headlines from RSS feeds inc
   "feeds": {
     "show_logos": true,
     "logo_size": 28,
-    "feed_logo_map": {
-      "My Custom Feed": "my_logo.png",
-      "Tech News": "tech_logo.png"
-    }
+    "custom_feeds": [
+      {
+        "name": "Tech News",
+        "url": "https://example.com/rss.xml",
+        "enabled": true,
+        "logo": {
+          "id": "tech-news-logo",
+          "path": "plugins/ledmatrix-news/assets/logos/tech-news-logo.png",
+          "uploaded_at": "2024-01-01T00:00:00Z"
+        }
+      }
+    ]
   }
 }
 ```
 
 - `show_logos`: Enable/disable news source logos (default: true)
 - `logo_size`: Logo size in pixels (default: display height - 4 pixels)
-- `feed_logo_map`: Custom logo file mapping for feeds (optional)
+- `logo`: Optional logo object in each custom feed (upload via web UI file upload widget)
 
 **Logo Behavior:**
 - When a logo is present: Logo replaces the "[Feed Name]: " prefix and " • " separator
@@ -109,31 +140,27 @@ A plugin for LEDMatrix that displays scrolling news headlines from RSS feeds inc
   - Format: `[Feed Name]: Title • `
 
 **Logo Resolution Priority:**
-1. User-configured `feed_logo_map` (custom logo file names)
+1. Integrated logo from feed object (`logo.path` field) - **New format**
 2. Predefined feed mappings (ESPN, NFL Network, MLB Network)
 3. Inferred from feed name (checks for "espn", "nfl", "mlb", etc.)
 4. Normalized feed name as filename (fallback)
 
 **Logo Directory Search Order:**
-1. `assets/news_logos/` (primary location for news source logos)
-2. `assets/broadcast_logos/` (fallback for broadcast network logos)
-3. Plugin `assets/logos/` (plugin-specific logos)
+1. Uploaded logo path from feed object (if present)
+2. `assets/news_logos/` (primary location for news source logos)
+3. `assets/broadcast_logos/` (fallback for broadcast network logos)
+4. Plugin `assets/logos/` (plugin-specific logos)
 
 **Adding Custom Logos:**
-1. Place your logo file (PNG format recommended) in `assets/news_logos/`
-2. Configure the mapping in `feed_logo_map`:
-   ```json
-   "feed_logo_map": {
-     "My Feed Name": "my_logo.png"
-   }
-   ```
-3. The plugin will automatically find and use your logo
+1. Upload logo via the web UI file upload widget in the feed configuration
+2. The logo will be automatically associated with the feed
+3. Logos are stored in the plugin's asset directory
 
-**Default Feed Mappings:**
+**Default Feed Mappings (Predefined Feeds):**
 - ESPN feeds (NFL, NBA, NHL, NCAA, etc.) → `espn.png`
 - MLB feed → `mlbn.png`
 - NFL feed → `nfln.png`
-- Custom feeds → Inferred from name or normalized feed name
+- Custom feeds → Use uploaded logo or inferred from name
 
 ## Available Predefined Feeds
 
@@ -169,18 +196,28 @@ The plugin uses background data fetching for efficient RSS parsing:
 
 ## Adding Custom Feeds
 
-You can add custom RSS feeds by specifying them in the configuration:
+You can add custom RSS feeds by specifying them in the configuration using the array format:
 
 ```json
 {
   "feeds": {
-    "custom_feeds": {
-      "My Sports": "https://mysportsfeed.com/rss",
-      "Local News": "https://localnews.com/sports.xml"
-    }
+    "custom_feeds": [
+      {
+        "name": "My Sports",
+        "url": "https://mysportsfeed.com/rss",
+        "enabled": true
+      },
+      {
+        "name": "Local News",
+        "url": "https://localnews.com/sports.xml",
+        "enabled": true
+      }
+    ]
   }
 }
 ```
+
+**Note:** The old dictionary format (`{"Feed Name": "URL"}`) is deprecated but still supported for backward compatibility. It will be automatically migrated to the new array format on first load. We recommend using the new array format for new configurations.
 
 ## Data Processing
 
