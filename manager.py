@@ -1051,6 +1051,19 @@ class NewsTickerPlugin(BasePlugin):
         self.display_manager.image = img
         self.display_manager.update_display()
 
+    def is_cycle_complete(self) -> bool:
+        """
+        Check if the news ticker scroll cycle is complete.
+        
+        This method is called by the display controller to determine when
+        to switch to the next plugin. Returns True only when the scroll
+        has completed its full cycle, ensuring headlines aren't cut off.
+        
+        Returns:
+            bool: True if scroll cycle is complete, False otherwise
+        """
+        return self._cycle_complete
+
     def get_display_duration(self) -> float:
         """Get display duration, using dynamic duration if enabled."""
         # If dynamic duration is enabled and scroll helper has calculated a duration, use it
