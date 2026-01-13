@@ -772,6 +772,19 @@ class NewsTickerPlugin(BasePlugin):
                     elapsed_time if elapsed_time is not None else -1.0,
                     scroll_info.get('dynamic_duration'),
                 )
+                
+                # Increment rotation count and check if we should rotate headlines
+                if self.rotation_enabled:
+                    self.rotation_count += 1
+                    self.logger.debug(f"Rotation count: {self.rotation_count}/{self.rotation_threshold}")
+                    
+                    if self.rotation_count >= self.rotation_threshold:
+                        self._rotate_headlines()
+                        self.rotation_count = 0
+                        # Clear scroll cache to force recreation with new headline order
+                        self.scroll_helper.clear_cache()
+                        self.logger.info("Headlines rotated - scroll cache cleared for next cycle")
+            
             self._cycle_complete = True
 
         # Get visible portion
@@ -1104,6 +1117,24 @@ class NewsTickerPlugin(BasePlugin):
             'feed_logo_map': self.feed_logo_map
         })
         return info
+
+    def _rotate_headlines(self) -> None:
+        """
+        Rotate headlines to show fresh content.
+        
+        Moves the first headline to the end of the list, ensuring that
+        different headlines are shown first on subsequent cycles. This
+        provides content freshness without waiting for RSS feed updates.
+        """
+        if len(self.current_headlines) > 1:
+            # Move first headline to end
+            first_headline = self.current_headlines.pop(0)
+            self.current_headlines.append(first_headline)
+            self.logger.info(
+                "Rotated headlines: '%s' moved to end (now showing: '%s' first)",
+                first_headline.get('title', 'Unknown')[:50],
+                self.current_headlines[0].get('title', 'Unknown')[:50]
+            )
 
     def cleanup(self) -> None:
         """Cleanup resources."""
