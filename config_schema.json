@@ -230,7 +230,7 @@
                 "x-widget": "file-upload",
                 "x-upload-config": {
                   "endpoint": "/api/v3/plugins/assets/upload",
-                  "plugin_id": "ledmatrix-news",
+                  "plugin_id": "news",
                   "max_files": 1,
                   "allowed_types": ["image/png", "image/jpeg", "image/bmp"],
                   "max_size_mb": 2

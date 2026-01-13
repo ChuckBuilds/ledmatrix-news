@@ -249,9 +249,13 @@ class NewsTickerPlugin(BasePlugin):
         """
         Migrate custom_feeds from old dict format to new array format.
         Also migrates feed_logo_map entries into the new logo object structure.
+        
+        Updates self.feeds_config and self.config in memory, then persists the
+        migrated format to disk via ConfigManager to prevent re-running on each startup.
         """
         custom_feeds = self.feeds_config.get('custom_feeds')
         feed_logo_map = self.feeds_config.get('feed_logo_map', {})
+        migration_performed = False
 
         if isinstance(custom_feeds, dict):
             self.logger.info("Migrating custom_feeds from dictionary to array format.")
@@ -277,9 +281,30 @@ class NewsTickerPlugin(BasePlugin):
             # Remove old feed_logo_map after migration
             if 'feed_logo_map' in self.feeds_config:
                 del self.feeds_config['feed_logo_map']
+            migration_performed = True
             self.logger.info("Custom feeds migration complete.")
         elif custom_feeds is None:
             self.feeds_config['custom_feeds'] = []  # Ensure it's an empty list if not present
+            migration_performed = True
+        
+        # Persist migrated config to disk if migration was performed
+        if migration_performed and self.plugin_manager and hasattr(self.plugin_manager, 'config_manager') and self.plugin_manager.config_manager:
+            try:
+                # Update self.config to reflect the migrated format
+                if 'feeds' not in self.config:
+                    self.config['feeds'] = {}
+                self.config['feeds'].update(self.feeds_config)
+                
+                # Get the full config from config_manager
+                full_config = self.plugin_manager.config_manager.load_config()
+                # Update this plugin's section in the full config
+                full_config[self.plugin_id] = self.config
+                # Save the full config back to disk
+                self.plugin_manager.config_manager.save_config(full_config)
+                self.logger.info("Persisted migrated custom_feeds format to disk.")
+            except Exception as e:
+                self.logger.error(f"Error persisting migrated config to disk: {e}", exc_info=True)
+                # Continue even if save fails - migration is still applied in memory
         
 
     def _configure_scroll_settings(self) -> None:

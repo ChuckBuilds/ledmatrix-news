@@ -196,18 +196,28 @@ The plugin uses background data fetching for efficient RSS parsing:
 
 ## Adding Custom Feeds
 
-You can add custom RSS feeds by specifying them in the configuration:
+You can add custom RSS feeds by specifying them in the configuration using the array format:
 
 ```json
 {
   "feeds": {
-    "custom_feeds": {
-      "My Sports": "https://mysportsfeed.com/rss",
-      "Local News": "https://localnews.com/sports.xml"
-    }
+    "custom_feeds": [
+      {
+        "name": "My Sports",
+        "url": "https://mysportsfeed.com/rss",
+        "enabled": true
+      },
+      {
+        "name": "Local News",
+        "url": "https://localnews.com/sports.xml",
+        "enabled": true
+      }
+    ]
   }
 }
 ```
+
+**Note:** The old dictionary format (`{"Feed Name": "URL"}`) is deprecated but still supported for backward compatibility. It will be automatically migrated to the new array format on first load. We recommend using the new array format for new configurations.
 
 ## Data Processing
 
