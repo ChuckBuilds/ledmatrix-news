@@ -297,8 +297,17 @@ class NewsTickerPlugin(BasePlugin):
                 
                 # Get the full config from config_manager
                 full_config = self.plugin_manager.config_manager.load_config()
-                # Update this plugin's section in the full config
-                full_config[self.plugin_id] = self.config
+                # Merge the migrated config into the existing plugin config (don't replace entire config)
+                if self.plugin_id not in full_config:
+                    full_config[self.plugin_id] = {}
+                # Merge feeds config into existing plugin config
+                if 'feeds' not in full_config[self.plugin_id]:
+                    full_config[self.plugin_id]['feeds'] = {}
+                full_config[self.plugin_id]['feeds'].update(self.feeds_config)
+                # Remove feed_logo_map if it exists in the saved config
+                if 'feeds' in full_config[self.plugin_id] and 'feed_logo_map' in full_config[self.plugin_id]['feeds']:
+                    del full_config[self.plugin_id]['feeds']['feed_logo_map']
+                
                 # Save the full config back to disk
                 self.plugin_manager.config_manager.save_config(full_config)
                 self.logger.info("Persisted migrated custom_feeds format to disk.")
